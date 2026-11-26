@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NUSA SKYWAYS — Archipelago Air Mail</title>
+<link rel="icon" href="data:,">
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0d1b33;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #f5f2ea; }
+  #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  /* ---------- HUD ---------- */
+  #hud { position: fixed; inset: 0; pointer-events: none; display: none; z-index: 5; }
+  .hud-panel { background: rgba(8, 20, 38, 0.72); border: 2px solid rgba(255, 210, 61, 0.55);
+    border-radius: 10px; padding: 8px 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.4); }
+  #hud-left { position: absolute; top: 12px; left: 12px; display: flex; gap: 10px; align-items: stretch; }
+  .hud-gauge { text-align: center; min-width: 92px; }
+  .hud-gauge .lbl { font-size: 11px; letter-spacing: 2px; color: #ffd23d; font-weight: 700; }
+  .hud-gauge .val { font-size: 26px; font-weight: 800; line-height: 1.1; color: #ffffff;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.7); }
+  #hud-attitude { width: 84px; height: 84px; border-radius: 50%; border: 2px solid rgba(255,210,61,0.55); background: #123; }
+  #hud-right { position: absolute; top: 12px; right: 12px; text-align: right; }
+  #hud-right .row { font-size: 17px; font-weight: 700; margin: 2px 0; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.7); }
+  #hud-right .row b { color: #ffd23d; }
+  #hud-objective { position: absolute; top: 118px; left: 50%; transform: translateX(-50%);
+    text-align: center; max-width: 46%; }
+  #hud-objective .obj { font-size: 19px; font-weight: 800; color: #fff; text-shadow: 0 2px 4px rgba(0,0,0,0.8); }
+  #hud-objective-sub { font-size: 16px; font-weight: 700; color: #37e08a; text-shadow: 0 1px 3px rgba(0,0,0,0.8); margin-top: 3px; }
+  #hud-warn { position: absolute; top: 34%; left: 50%; transform: translateX(-50%);
+    font-size: 30px; font-weight: 900; letter-spacing: 3px; color: #ff3b30; display: none;
+    text-shadow: 0 0 12px rgba(255,59,48,0.8), 0 2px 4px rgba(0,0,0,0.9); }
+  #hud-bars { position: absolute; left: 12px; bottom: 12px; width: 300px; }
+  .bar-row { display: flex; align-items: center; gap: 8px; margin: 5px 0; }
+  .bar-row .blbl { width: 74px; font-size: 12px; font-weight: 800; letter-spacing: 1px; color: #ffd23d; }
+  .bar { flex: 1; height: 16px; background: rgba(0,0,0,0.55); border: 1px solid rgba(255,255,255,0.5); border-radius: 8px; overflow: hidden; }
+  .bar-fill { height: 100%; width: 50%; }
+  .bar-fill.thr { background: #37b6ff; }
+  .bar-fill.fuel { background: #37e08a; }
+  .bar-fill.fuel.low { background: #ff3b30; }
+  .bar-fill.dmg { background: #ff9f1c; }
+  .bar-num { width: 44px; font-size: 14px; font-weight: 800; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.8); }
+  #hud-help { position: absolute; right: 12px; bottom: 12px; text-align: right; font-size: 13px;
+    font-weight: 600; color: #e8f2ff; text-shadow: 0 1px 3px rgba(0,0,0,0.9); line-height: 1.5; }
+  /* ---------- Menus ---------- */
+  #overlay { position: fixed; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center;
+    background: radial-gradient(ellipse at center, rgba(10,30,60,0.55) 0%, rgba(5,12,28,0.88) 100%); }
+  #overlay.hidden { display: none; }
+  .menu { max-width: 860px; width: 92%; max-height: 92vh; overflow-y: auto; text-align: center; padding: 18px; }
+  .menu h1 { font-size: 54px; margin: 4px 0 0; letter-spacing: 3px; color: #ffd23d;
+    text-shadow: 0 3px 0 #b3541e, 0 6px 18px rgba(0,0,0,0.7); }
+  .menu h2 { font-size: 34px; margin: 4px 0 8px; color: #ffd23d; letter-spacing: 2px; }
+  .menu .tag { font-size: 19px; font-weight: 700; color: #bfe3ff; margin: 6px 0 16px; }
+  .menu p { font-size: 16px; line-height: 1.55; color: #e8f2ff; }
+  .btn { display: inline-block; margin: 6px; padding: 13px 26px; font-size: 18px; font-weight: 800;
+    letter-spacing: 1px; color: #12233d; background: #ffd23d; border: none; border-radius: 10px;
+    cursor: pointer; box-shadow: 0 4px 0 #b3541e, 0 6px 14px rgba(0,0,0,0.5); }
+  .btn:hover { filter: brightness(1.08); }
+  .btn.secondary { background: #e8f2ff; box-shadow: 0 4px 0 #7a8ba0, 0 6px 14px rgba(0,0,0,0.5); }
+  .btn:disabled { opacity: 0.45; cursor: default; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; margin: 14px 0; }
+  .card { background: rgba(10, 26, 52, 0.9); border: 2px solid rgba(255,210,61,0.45); border-radius: 12px;
+    padding: 14px; text-align: left; }
+  .card.locked { opacity: 0.55; border-color: rgba(255,255,255,0.25); }
+  .card h3 { margin: 0 0 2px; font-size: 20px; color: #fff; }
+  .card .sub { color: #ffd23d; font-weight: 800; font-size: 14px; letter-spacing: 1px; }
+  .card p { font-size: 14px; margin: 8px 0; }
+  .card .meta { font-size: 13px; color: #bfe3ff; font-weight: 700; }
+  .card .stamp { font-size: 15px; font-weight: 900; color: #37e08a; }
+  .coins-line { font-size: 20px; font-weight: 900; color: #ffd23d; margin: 8px 0; }
+  .keys { font-size: 14px; color: #cfe4ff; line-height: 1.9; background: rgba(0,0,0,0.35);
+    border-radius: 10px; padding: 10px 16px; display: inline-block; text-align: left; }
+  .keys b { color: #ffd23d; }
+</style>
+</head>
+<body>
+<canvas id="game" aria-label="NUSA SKYWAYS: fly the mail plane across the Indonesian archipelago"></canvas>
+<p id="status" role="status" aria-live="polite"></p>
+
+<div id="hud">
+  <div id="hud-left">
+    <div class="hud-panel hud-gauge"><div class="lbl">ALT</div><div class="val" id="hud-alt">0 ft</div></div>
+    <div class="hud-panel hud-gauge"><div class="lbl">AIRSPEED</div><div class="val" id="hud-spd">0 kt</div></div>
+    <div class="hud-panel hud-gauge"><div class="lbl">HEADING</div><div class="val" id="hud-hdg">0° N</div></div>
+    <canvas id="hud-attitude" width="84" height="84" aria-label="artificial horizon"></canvas>
+  </div>
+  <div id="hud-objective"><div class="obj" id="hud-objective-text"></div><div id="hud-objective-sub"></div></div>
+  <div id="hud-right" class="hud-panel">
+    <div class="row">SCORE <b id="hud-score">0</b></div>
+    <div class="row">TIME <b id="hud-time">0:00</b></div>
+    <div class="row">COINS <b id="hud-coins">0</b></div>
+    <div class="row"><span id="hud-route">Coral Lagoon</span> · <span id="hud-cam">CHASE</span></div>
+  </div>
+  <div id="hud-warn"></div>
+  <div id="hud-bars">
+    <div class="bar-row"><span class="blbl">THROTTLE</span><div class="bar"><div class="bar-fill thr" id="hud-thr"></div></div><span class="bar-num" id="hud-thr-num">0%</span></div>
+    <div class="bar-row"><span class="blbl">FUEL</span><div class="bar"><div class="bar-fill fuel" id="hud-fuel"></div></div></div>
+    <div class="bar-row"><span class="blbl">DAMAGE</span><div class="bar"><div class="bar-fill dmg" id="hud-dmg"></div></div></div>
+  </div>
+  <div id="hud-help">W/S throttle · ←/→ bank · I/K pitch · C camera · P pause · R restart · M mute</div>
+</div>
+
+<div id="overlay"><div class="menu" id="menu"></div></div>
+
+<script src="./vendor/three.min.js"></script>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
