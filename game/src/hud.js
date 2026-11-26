@@ -21,9 +21,15 @@ function drawAttitude(canvas, pitch, bank) {
   ctx.translate(cx, cy);
   ctx.rotate(-bank);
   const pitchPx = Math.max(-r, Math.min(r, pitch * r * 1.4));
-  ctx.fillStyle = '#3f8fd2';
+  const skyGrad = ctx.createLinearGradient(0, -r * 2 - pitchPx, 0, -pitchPx);
+  skyGrad.addColorStop(0, '#7ec3ee');
+  skyGrad.addColorStop(1, '#3f8fd2');
+  ctx.fillStyle = skyGrad;
   ctx.fillRect(-r * 2, -r * 2 - pitchPx, r * 4, r * 2 + pitchPx);
-  ctx.fillStyle = '#c98a4b';
+  const gndGrad = ctx.createLinearGradient(0, -pitchPx, 0, r * 2 - pitchPx);
+  gndGrad.addColorStop(0, '#c98a4b');
+  gndGrad.addColorStop(1, '#7a5230');
+  ctx.fillStyle = gndGrad;
   ctx.fillRect(-r * 2, -pitchPx, r * 4, r * 2 + pitchPx);
   ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2;
   ctx.beginPath(); ctx.moveTo(-r, -pitchPx); ctx.lineTo(r, -pitchPx); ctx.stroke();
