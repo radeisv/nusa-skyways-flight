@@ -36,127 +36,162 @@ function makeDiscTexture(THREE) {
   return new THREE.CanvasTexture(c);
 }
 
-/** The mail plane, rebuilt to look built and modern: smooth fuselage with a
- * gold livery band, glossy canopy, side windows, nav lights, landing gear,
- * floats with gold tips, and a spinning propeller behind a blur disc. */
+/** The mail plane, rebuilt as a MODERN current amphibian (Cessna 208 Caravan
+ * Amphibian / Icon A5 class): sleek glossy-white fuselage with a dark teal
+ * cheatline, large tinted glass canopy, 3-blade prop that fades into a blur
+ * disc at speed, T-tail with winglets, streamlined floats. Footprint is
+ * IDENTICAL to the old plane (length ~11.4 m, span 15 m, same origin and
+ * attachment points, wing stays mid at y 0.1) so the screenshot staging,
+ * wing camera and flight behaviour are unchanged. */
 export function buildPlane(THREE) {
   const plane = new THREE.Group();
-  const red = new THREE.MeshStandardMaterial({ color: PALETTE.planeRed, metalness: 0.25, roughness: 0.42 });
-  const white = new THREE.MeshStandardMaterial({ color: PALETTE.planeWhite, metalness: 0.1, roughness: 0.5 });
-  const gold = new THREE.MeshStandardMaterial({ color: PALETTE.planeGold, metalness: 0.65, roughness: 0.3 });
+  // Modern livery, defined locally (config PALETTE is off limits for this).
+  const white = new THREE.MeshStandardMaterial({ color: 0xf7f5ef, metalness: 0.30, roughness: 0.28 });
+  const teal = new THREE.MeshStandardMaterial({ color: 0x14425e, metalness: 0.45, roughness: 0.35 });
   const dark = new THREE.MeshStandardMaterial({ color: 0x2b2f36, metalness: 0.3, roughness: 0.6 });
-  const glass = new THREE.MeshPhongMaterial({ color: 0x16324a, shininess: 160, specular: 0xbfd9ff });
+  const glass = new THREE.MeshPhongMaterial({ color: 0x1a2f45, shininess: 200, specular: 0xdfefff });
+  const winMat = new THREE.MeshBasicMaterial({ color: 0x101c28 });
+  // Shadows only on the main masses: fuselage, wing, fin, floats.
+  function add(mesh, casts) {
+    plane.add(mesh);
+    mesh.castShadow = casts === true;
+    return mesh;
+  }
 
-  // Smooth fuselage: tapered cylinder + rounded nose cone.
-  const fuselage = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.05, 9, 18), red);
+  // Sleek fuselage: 24-seg tapered cylinder + rounded nose cap + tail cone.
+  const fuselage = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.05, 9, 24), white);
   fuselage.rotation.x = Math.PI / 2;
-  plane.add(fuselage);
-  const tailCone = new THREE.Mesh(new THREE.CylinderGeometry(1.05, 0.35, 2.2, 14), red);
+  add(fuselage, true);
+  const noseCap = new THREE.Mesh(new THREE.SphereGeometry(1.5, 24, 16), white);
+  noseCap.scale.set(1, 1, 0.85);
+  noseCap.position.z = -4.9;
+  add(noseCap, true);
+  const tailCone = new THREE.Mesh(new THREE.CylinderGeometry(1.05, 0.32, 2.2, 14), white);
   tailCone.rotation.x = Math.PI / 2;
   tailCone.position.z = 5.5;
-  plane.add(tailCone);
-  const nose = new THREE.Mesh(new THREE.ConeGeometry(1.5, 2.4, 18), gold);
-  nose.rotation.x = -Math.PI / 2;
-  nose.position.z = -5.6;
-  plane.add(nose);
-  // Gold livery band around the fuselage, just behind the cabin.
-  const band = new THREE.Mesh(new THREE.CylinderGeometry(1.54, 1.54, 0.9, 18), gold);
-  band.rotation.x = Math.PI / 2;
-  band.position.z = -2.6;
-  plane.add(band);
-  // Glossy cockpit canopy.
-  const cabin = new THREE.Mesh(new THREE.SphereGeometry(1.3, 18, 12), glass);
-  cabin.scale.set(1, 0.72, 1.7);
-  cabin.position.set(0, 1.15, -0.7);
-  plane.add(cabin);
-  // Passenger windows, three a side.
-  const winGeo = new THREE.CircleGeometry(0.34, 12);
-  const winMat = new THREE.MeshBasicMaterial({ color: 0x101c28 });
+  add(tailCone, true);
+  // Teal tail band: reads from directly behind, where the cheatline hides.
+  const tailBand = new THREE.Mesh(new THREE.CylinderGeometry(0.72, 0.72, 0.6, 14), teal);
+  tailBand.rotation.x = Math.PI / 2;
+  tailBand.position.z = 5.5;
+  add(tailBand);
+  // Teal cheatline stripes along both flanks.
   for (const side of [-1, 1]) {
-    for (const z of [0.9, 2.1, 3.3]) {
+    const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.8, 7.2), teal);
+    stripe.position.set(side * 1.47, 0.15, -0.3);
+    add(stripe);
+  }
+  // Large tinted glass canopy + separate windscreen.
+  const cabin = new THREE.Mesh(new THREE.SphereGeometry(1.35, 20, 14), glass);
+  cabin.scale.set(1, 0.72, 1.9);
+  cabin.position.set(0, 1.2, -0.9);
+  add(cabin);
+  const windscreen = new THREE.Mesh(new THREE.SphereGeometry(1.1, 16, 10), glass);
+  windscreen.scale.set(1, 0.62, 1.1);
+  windscreen.position.set(0, 1.05, -2.6);
+  add(windscreen);
+  // Teal belly stripe: breaks up the white underside seen from below.
+  const belly = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.22, 6), teal);
+  belly.position.set(0, -1.38, -0.5);
+  add(belly);
+  // Cabin windows, four a side.
+  const winGeo = new THREE.CircleGeometry(0.32, 12);
+  for (const side of [-1, 1]) {
+    for (const z of [0.6, 1.7, 2.8, 3.9]) {
       const win = new THREE.Mesh(winGeo, winMat);
-      win.position.set(side * 1.42, 0.55, z);
+      win.position.set(side * 1.44, 0.6, z);
       win.rotation.y = side * Math.PI / 2;
-      plane.add(win);
+      add(win);
     }
   }
-  // Main wing with red tips and nav lights.
+  // Main wing (mid, y 0.1) with teal winglets and nav lights.
   const wing = new THREE.Mesh(new THREE.BoxGeometry(15, 0.35, 2.6), white);
   wing.position.set(0, 0.1, -0.4);
-  plane.add(wing);
+  add(wing, true);
   for (const side of [-1, 1]) {
-    const tip = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.4, 2.6), red);
-    tip.position.set(side * 7.6, 0.1, -0.4);
-    plane.add(tip);
+    const winglet = new THREE.Mesh(new THREE.BoxGeometry(0.16, 1.2, 2.2), teal);
+    winglet.position.set(side * 7.55, 0.7, -0.4);
+    add(winglet, true);
   }
   const navL = new THREE.Mesh(new THREE.SphereGeometry(0.3, 10, 8),
     new THREE.MeshBasicMaterial({ color: 0xff2a22 }));
   navL.position.set(-7.9, 0.1, -0.4);
-  plane.add(navL);
+  add(navL);
   const navR = new THREE.Mesh(new THREE.SphereGeometry(0.3, 10, 8),
     new THREE.MeshBasicMaterial({ color: 0x2aff66 }));
   navR.position.set(7.9, 0.1, -0.4);
-  plane.add(navR);
-  // Tail: stabiliser, fin with a gold stripe, white strobe.
+  add(navR);
+  // T-tail: tall fin with a teal stripe, stabiliser on TOP of the fin.
+  const tailFin = new THREE.Mesh(new THREE.BoxGeometry(0.3, 3.2, 1.8), white);
+  tailFin.position.set(0, 1.9, 4.2);
+  add(tailFin, true);
+  const finStripe = new THREE.Mesh(new THREE.BoxGeometry(0.34, 1.1, 1.8), teal);
+  finStripe.position.set(0, 2.6, 4.2);
+  add(finStripe);
   const tailWing = new THREE.Mesh(new THREE.BoxGeometry(5.4, 0.3, 1.6), white);
-  tailWing.position.set(0, 0.5, 4.2);
-  plane.add(tailWing);
-  const tailFin = new THREE.Mesh(new THREE.BoxGeometry(0.3, 2.6, 1.8), red);
-  tailFin.position.set(0, 1.4, 4.2);
-  plane.add(tailFin);
-  const finStripe = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.5, 1.8), gold);
-  finStripe.position.set(0, 1.9, 4.2);
-  plane.add(finStripe);
+  tailWing.position.set(0, 3.3, 4.2);
+  add(tailWing, true);
   const strobe = new THREE.Mesh(new THREE.SphereGeometry(0.28, 10, 8),
     new THREE.MeshBasicMaterial({ color: 0xffffff }));
-  strobe.position.set(0, 0.7, 6.4);
-  plane.add(strobe);
-  // Propeller (spins in the loop) + spinner + translucent blur disc.
+  strobe.position.set(0, 3.55, 4.2);
+  add(strobe);
+  // Propeller: 3 thin blades at 120 degrees, fading with throttle so at
+  // full power only the blur disc reads — never a black X.
   const prop = new THREE.Group();
-  const bladeMat = new THREE.MeshStandardMaterial({ color: 0x22242a, metalness: 0.4, roughness: 0.5 });
-  const blade1 = new THREE.Mesh(new THREE.BoxGeometry(0.35, 5.4, 0.18), bladeMat);
-  const blade2 = blade1.clone(); blade2.rotation.z = Math.PI / 2;
-  prop.add(blade1); prop.add(blade2);
+  const bladeMat = new THREE.MeshStandardMaterial({ color: 0x3a3d44, metalness: 0.4, roughness: 0.5, transparent: true });
+  for (let i = 0; i < 3; i += 1) {
+    const blade = new THREE.Mesh(new THREE.BoxGeometry(0.18, 4.8, 0.15), bladeMat);
+    blade.rotation.z = (i * Math.PI * 2) / 3;
+    prop.add(blade);
+  }
   prop.position.z = -6.9;
   plane.add(prop);
-  const spinner = new THREE.Mesh(new THREE.ConeGeometry(0.5, 1.1, 12), gold);
+  const spinner = new THREE.Mesh(new THREE.ConeGeometry(0.5, 1.1, 12), white);
   spinner.rotation.x = -Math.PI / 2;
   spinner.position.z = -7.0;
-  plane.add(spinner);
-  const blurDisc = new THREE.Mesh(new THREE.CircleGeometry(2.6, 28),
+  add(spinner);
+  const spinnerTip = new THREE.Mesh(new THREE.ConeGeometry(0.28, 0.5, 12), teal);
+  spinnerTip.rotation.x = -Math.PI / 2;
+  spinnerTip.position.z = -7.5;
+  add(spinnerTip);
+  const blurDisc = new THREE.Mesh(new THREE.CircleGeometry(2.9, 28),
     new THREE.MeshBasicMaterial({ map: makeDiscTexture(THREE), transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false }));
-  blurDisc.position.z = -7.05;
-  plane.add(blurDisc);
-  // Landing gear: struts + wheels.
+  blurDisc.position.z = -6.82;
+  add(blurDisc);
+  // Landing gear: struts + wheels (kept, tucked for the amphibian).
   for (const side of [-1, 1]) {
     const strut = new THREE.Mesh(new THREE.BoxGeometry(0.25, 1.3, 0.25), dark);
     strut.position.set(side * 1.3, -1.6, 0.9);
-    plane.add(strut);
+    add(strut);
     const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 0.35, 12), dark);
     wheel.rotation.z = Math.PI / 2;
     wheel.position.set(side * 1.3, -2.25, 0.9);
-    plane.add(wheel);
+    add(wheel);
   }
-  // Floats for the seaplane routes, with gold tips.
+  // Streamlined floats with a teal stripe and step, same positions as before.
   for (const side of [-1, 1]) {
     const float = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.4, 5.4, 10), white);
     float.rotation.x = Math.PI / 2;
     float.position.set(side * 2.2, -1.9, -0.5);
-    plane.add(float);
-    const tip = new THREE.Mesh(new THREE.ConeGeometry(0.4, 0.9, 10), gold);
+    add(float, true);
+    const tip = new THREE.Mesh(new THREE.ConeGeometry(0.4, 0.9, 10), white);
     tip.rotation.x = -Math.PI / 2;
     tip.position.set(side * 2.2, -1.9, -3.4);
-    plane.add(tip);
+    add(tip, true);
+    const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.3, 4.6), teal);
+    stripe.position.set(side * 2.78, -1.9, -0.5);
+    add(stripe);
+    const step = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.25, 0.5), dark);
+    step.position.set(side * 2.2, -2.35, 0.6);
+    add(step);
     const strut = new THREE.Mesh(new THREE.BoxGeometry(0.25, 1.4, 0.25), dark);
     strut.position.set(side * 2.2, -1.1, -0.5);
-    plane.add(strut);
+    add(strut);
   }
-  // Soft shadows: the plane casts, the terrain receives.
-  plane.traverse((o) => { if (o.isMesh) o.castShadow = true; });
-  blurDisc.castShadow = false;
   plane.userData.prop = prop;
   plane.userData.blurDisc = blurDisc;
   plane.userData.strobe = strobe;
+  plane.userData.bladeMat = bladeMat;
   return plane;
 }
 
@@ -177,14 +212,14 @@ export function createRenderer(canvas) {
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x8ec9e8);
-  scene.fog = new THREE.Fog(0xd99a68, 1100, 4200);
+  scene.fog = new THREE.Fog(0xd6ab7f, 1100, 3200);
   const camera = new THREE.PerspectiveCamera(62, 1, 0.5, 9000);
 
   // --- Gradient sky dome with sun disc + glow, and stars at night. ---
   const SUN_DIR = new THREE.Vector3(-0.55, 0.38, -0.55).normalize();
   const skyUniforms = {
-    uTop: { value: new THREE.Color(0x2a5ea8) },
-    uHorizon: { value: new THREE.Color(0xe89a5e) },
+    uTop: { value: new THREE.Color(0x2f6fc4) },
+    uHorizon: { value: new THREE.Color(0xdfa172) },
     uSunDir: { value: SUN_DIR },
     uSunColor: { value: new THREE.Color(0xffe9b8) },
   };
@@ -205,9 +240,9 @@ export function createRenderer(canvas) {
       varying vec3 vDir;
       void main() {
         float h = clamp(vDir.y, -0.08, 1.0);
-        vec3 col = mix(uHorizon, uTop, pow(max(h, 0.0), 0.62));
+        vec3 col = mix(uHorizon, uTop, pow(max(h, 0.0), 0.45));
         float s = max(dot(normalize(vDir), normalize(uSunDir)), 0.0);
-        col += uSunColor * (pow(s, 700.0) * 1.2 + pow(s, 24.0) * 0.18 + pow(s, 6.0) * 0.06);
+        col += uSunColor * (pow(s, 700.0) * 1.2 + pow(s, 24.0) * 0.12 + pow(s, 6.0) * 0.015);
         gl_FragColor = vec4(col, 1.0);
         #include <tonemapping_fragment>
         #include <encodings_fragment>
@@ -316,11 +351,11 @@ export function createRenderer(canvas) {
       hemi.intensity = 0.35;
       starMat.opacity = 0.9;
     } else {
-      skyUniforms.uTop.value.setHex(0x2a5ea8);
-      skyUniforms.uHorizon.value.setHex(0xe89a5e);
+      skyUniforms.uTop.value.setHex(0x2f6fc4);
+      skyUniforms.uHorizon.value.setHex(0xdfa172);
       skyUniforms.uSunColor.value.setHex(0xffe9b8);
       scene.background.setHex(PALETTE.skyDay);
-      scene.fog.color.setHex(0xd99a68);
+      scene.fog.color.setHex(0xd6ab7f);
       sun.intensity = 2.2;
       sun.color.setHex(0xffd9a0);
       hemi.intensity = 0.75;
@@ -328,7 +363,7 @@ export function createRenderer(canvas) {
     }
     if (terrain && terrain.group.userData.seaMat) {
       terrain.group.userData.seaMat.uniforms.uNight.value = isNight ? 1 : 0;
-      terrain.group.userData.seaMat.uniforms.uFogColor.value.setHex(isNight ? 0x16283f : 0xd99a68);
+      terrain.group.userData.seaMat.uniforms.uFogColor.value.setHex(isNight ? 0x16283f : 0xd6ab7f);
     }
   }
 
@@ -430,7 +465,10 @@ export function createRenderer(canvas) {
       plane.userData.prop.rotation.z += dt * (4 + planeState.throttle * 0.55);
     }
     if (plane.userData.blurDisc) {
-      plane.userData.blurDisc.material.opacity = 0.55 + (planeState.throttle / 100) * 0.45;
+      plane.userData.blurDisc.material.opacity = 0.7 + (planeState.throttle / 100) * 0.3;
+    }
+    if (plane.userData.bladeMat) {
+      plane.userData.bladeMat.opacity = Math.min(0.5, Math.max(0.08, 1 - planeState.throttle * 0.01));
     }
     // Tail strobe: short double blink, once a second.
     if (plane.userData.strobe) {

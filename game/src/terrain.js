@@ -110,9 +110,11 @@ function buildIsland(THREE, isl, seed) {
     const x = pos.getX(i), z = pos.getZ(i);
     const h = pos.getY(i);
     islandColour(isl.kind, h, isl.h, normals.getY(i), rgb);
-    // Slight per-vertex jitter for a hand-made low-poly feel.
+    // Slight per-vertex jitter for a hand-made low-poly feel, plus a second
+    // high-frequency noise that breaks the visible height-band lines.
     const j = 1 + hashNoise(x, z, seed + 7) * 0.06;
-    colours[i * 3] = rgb[0] * j; colours[i * 3 + 1] = rgb[1] * j; colours[i * 3 + 2] = rgb[2] * j;
+    const j2 = 1 + hashNoise(x * 0.15, z * 0.15, seed + 11) * 0.12;
+    colours[i * 3] = rgb[0] * j * j2; colours[i * 3 + 1] = rgb[1] * j * j2; colours[i * 3 + 2] = rgb[2] * j * j2;
   }
   geo.setAttribute('color', new THREE.BufferAttribute(colours, 3));
   const mat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
@@ -130,9 +132,9 @@ function buildSea(THREE, night) {
     uShallow: { value: new THREE.Color(0x1e8fb8) },
     uSunDir: { value: new THREE.Vector3(-0.55, 0.38, -0.55).normalize() },
     uSunColor: { value: new THREE.Color(0xffd9a0) },
-    uFogColor: { value: new THREE.Color(0xd99a68) },
+    uFogColor: { value: new THREE.Color(0xd6ab7f) },
     uFogNear: { value: 1100 },
-    uFogFar: { value: 4200 },
+    uFogFar: { value: 3200 },
   };
   const mat = new THREE.ShaderMaterial({
     uniforms,
@@ -142,7 +144,8 @@ function buildSea(THREE, night) {
       float waveH(float x, float z, float t) {
         return sin(x * 0.021 + t * 0.9) * 0.9
              + sin(z * 0.016 + t * 0.6) * 0.7
-             + sin((x + z) * 0.012 + t * 0.45) * 0.55;
+             + sin((x + z) * 0.012 + t * 0.45) * 0.55
+             + sin((x * 2.0 - z * 1.7) * 0.11 + t * 1.7) * 0.16;
       }
       void main() {
         vec3 p = position;
@@ -160,17 +163,19 @@ function buildSea(THREE, night) {
       }`,
     fragmentShader: `
       uniform vec3 uDeep, uShallow, uSunDir, uSunColor, uFogColor;
-      uniform float uFogNear, uFogFar, uNight;
+      uniform float uFogNear, uFogFar, uNight, uTime;
       varying vec3 vPos; varying vec3 vNormal; varying float vWave;
       void main() {
         vec3 N = normalize(vNormal);
         vec3 V = normalize(cameraPosition - vPos);
         float fres = pow(1.0 - max(dot(V, N), 0.0), 3.0);
         vec3 col = mix(uDeep, uShallow, clamp(vWave * 0.25 + 0.5, 0.0, 1.0) * 0.55 + fres * 0.45);
-        col = mix(col, uFogColor, fres * 0.22);
+        col = mix(col, uFogColor, fres * 0.30);
         vec3 R = reflect(-V, N);
-        float spec = pow(max(dot(R, normalize(uSunDir)), 0.0), 120.0);
-        col += uSunColor * spec * 1.6;
+        float spec = pow(max(dot(R, normalize(uSunDir)), 0.0), 200.0);
+        col += uSunColor * spec * 2.2;
+        float glitter = max(0.0, sin(vPos.x * 1.7 + uTime * 2.0) * sin(vPos.z * 2.3 - uTime * 1.6));
+        col += uSunColor * glitter * glitter * 0.08;
         float fogF = smoothstep(uFogNear, uFogFar, distance(cameraPosition, vPos));
         col = mix(col, uFogColor, fogF);
         col *= (1.0 - uNight * 0.55);
@@ -223,7 +228,7 @@ function buildPalms(THREE, seed) {
   const trunkGeo = new THREE.CylinderGeometry(0.28, 0.6, 7, 5);
   const trunkMat = new THREE.MeshLambertMaterial({ color: 0x7a5230, flatShading: true });
   const canopyGeo = new THREE.SphereGeometry(2.7, 7, 5);
-  const canopyMat = new THREE.MeshLambertMaterial({ color: 0x2f8f46, flatShading: true });
+  const canopyMat = new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true });
   const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, spots.length);
   const canopies = new THREE.InstancedMesh(canopyGeo, canopyMat, spots.length);
   trunks.castShadow = true;
@@ -244,13 +249,56 @@ function buildPalms(THREE, seed) {
     trunks.setMatrixAt(i, m);
     e.set(0, rand() * Math.PI, 0);
     q.setFromEuler(e);
-    s.set(1, 0.42, 1);
+    const cs = 0.85 + rand() * 0.45;
+    s.set(cs, 0.38 + rand() * 0.1, cs);
     p.set(spot.x, spot.h + 7.4, spot.z);
     m.compose(p, q, s);
     canopies.setMatrixAt(i, m);
+    canopies.setColorAt(i, new THREE.Color(rand() < 0.5 ? 0x2f8f46 : 0x3aa855));
   });
+  canopies.instanceColor.needsUpdate = true;
   group.add(trunks);
   group.add(canopies);
+  return group;
+}
+
+// Low shrubs and grass tufts near the beaches, one InstancedMesh, two greens.
+function buildBushes(THREE, seed) {
+  const rand = createRandom(seed * 17 + 9);
+  const spots = [];
+  for (let i = 0; i < 500 && spots.length < 200; i += 1) {
+    const isl = ISLANDS[Math.floor(rand() * ISLANDS.length)];
+    const a = rand() * Math.PI * 2;
+    const d = Math.sqrt(rand()) * isl.r * 0.9;
+    const x = isl.x + Math.cos(a) * d, z = isl.z + Math.sin(a) * d;
+    const h = groundHeight(x, z, seed);
+    if (h < 2 || h > 30) continue;
+    if (Math.abs(x - RUNWAY.x) < 70 && z > -160 && z < 260) continue;
+    if (Math.abs(x - RUNWAY.x) < 55 && Math.abs(z - RUNWAY.z) < RUNWAY.length / 2 + 40) continue;
+    spots.push({ x, z, h });
+  }
+  const group = new THREE.Group();
+  if (spots.length === 0) return group;
+  const geo = new THREE.SphereGeometry(1.6, 6, 4);
+  const mat = new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true });
+  const bushes = new THREE.InstancedMesh(geo, mat, spots.length);
+  const m = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  const e = new THREE.Euler();
+  const s = new THREE.Vector3();
+  const p = new THREE.Vector3();
+  spots.forEach((spot, i) => {
+    e.set(0, rand() * Math.PI, 0);
+    q.setFromEuler(e);
+    const bs = 0.7 + rand() * 0.9;
+    s.set(bs, bs * 0.45, bs);
+    p.set(spot.x, spot.h + 0.5, spot.z);
+    m.compose(p, q, s);
+    bushes.setMatrixAt(i, m);
+    bushes.setColorAt(i, new THREE.Color(rand() < 0.5 ? 0x2a7a3a : 0x4a9a3f));
+  });
+  bushes.instanceColor.needsUpdate = true;
+  group.add(bushes);
   return group;
 }
 
@@ -268,8 +316,9 @@ function buildSettlement(THREE, seed) {
     base.position.y = 2.25;
     base.castShadow = true;
     house.add(base);
+    const roofColors = [0xa85438, 0x2f5a66, 0x3a3f45];
     const roof = new THREE.Mesh(new THREE.ConeGeometry(5.6, 3.2, 4),
-      new THREE.MeshLambertMaterial({ color: 0xa85438, flatShading: true }));
+      new THREE.MeshLambertMaterial({ color: roofColors[i % roofColors.length], flatShading: true }));
     roof.rotation.y = Math.PI / 4;
     roof.position.y = 6.1;
     roof.castShadow = true;
@@ -325,6 +374,28 @@ function buildSettlement(THREE, seed) {
   return { group, boats };
 }
 
+// Asphalt texture generated at runtime (no file, no network): speckle
+// noise plus two dark tyre streaks running the length of the strip.
+function makeAsphaltTexture(THREE) {
+  const c = document.createElement('canvas');
+  c.width = 128; c.height = 128;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#33373f';
+  ctx.fillRect(0, 0, 128, 128);
+  for (let i = 0; i < 900; i += 1) {
+    const v = 40 + Math.floor(Math.random() * 40);
+    ctx.fillStyle = 'rgba(' + v + ',' + (v + 3) + ',' + (v + 8) + ',0.35)';
+    ctx.fillRect(Math.random() * 128, Math.random() * 128, 2, 2);
+  }
+  ctx.fillStyle = 'rgba(18,19,23,0.55)';
+  ctx.fillRect(38, 0, 10, 128);
+  ctx.fillRect(80, 0, 10, 128);
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(1, 4);
+  return tex;
+}
+
 function buildRunway(THREE, night) {
   const group = new THREE.Group();
   const strip = new THREE.Mesh(
@@ -334,6 +405,13 @@ function buildRunway(THREE, night) {
   strip.position.set(RUNWAY.x, RUNWAY.groundY + 0.8, RUNWAY.z);
   strip.receiveShadow = true;
   group.add(strip);
+  // Textured asphalt skin on top of the strip, under the painted markings.
+  const asphalt = new THREE.Mesh(new THREE.PlaneGeometry(RUNWAY.width, RUNWAY.length),
+    new THREE.MeshLambertMaterial({ map: makeAsphaltTexture(THREE) }));
+  asphalt.rotation.x = -Math.PI / 2;
+  asphalt.position.set(RUNWAY.x, RUNWAY.groundY + 1.62, RUNWAY.z);
+  asphalt.receiveShadow = true;
+  group.add(asphalt);
   // Threshold piano keys at both ends + touchdown-zone bars.
   const whiteMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
   for (const zend of [-1, 1]) {
@@ -412,14 +490,14 @@ function buildRunway(THREE, night) {
 
 function buildClouds(THREE, rand) {
   const group = new THREE.Group();
-  const mat = new THREE.MeshLambertMaterial({ color: PALETTE.cloud, transparent: true, opacity: 0.9 });
+  const mat = new THREE.MeshLambertMaterial({ color: 0xf2f5f8, transparent: true, opacity: 0.85 });
   const geo = new THREE.SphereGeometry(1, 7, 6);
   for (let i = 0; i < 18; i += 1) {
     const puff = new THREE.Group();
     const n = 3 + Math.floor(rand() * 2);
     for (let j = 0; j < n; j += 1) {
       const s = new THREE.Mesh(geo, mat);
-      const r = 15 + rand() * 17;
+      const r = 14 + rand() * 22;
       s.scale.set(r, r * 0.5, r * 0.7);
       s.position.set((rand() - 0.5) * 55, (rand() - 0.5) * 6, (rand() - 0.5) * 24);
       puff.add(s);
@@ -465,6 +543,7 @@ export function buildTerrain(THREE, seed, night, storm) {
   group.add(buildFoam(THREE));
   for (const isl of ISLANDS) group.add(buildIsland(THREE, isl, seed));
   group.add(buildPalms(THREE, seed));
+  group.add(buildBushes(THREE, seed));
   const settlement = buildSettlement(THREE, seed);
   group.add(settlement.group);
   // Volcano crater glow: molten disc + warm point light, gently pulsing.
