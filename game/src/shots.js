@@ -33,13 +33,14 @@ export function autopilotControls(plane, target, throttle) {
 /**
  * Stage the named scene on a live game object (the one main.js builds):
  * game.startRoute(id), game.step(ctl), game.plane, game.mission, game.screen.
- * Returns the screen the shot should show.
+ * Returns { screen, camera }: the screen to show and the camera mode to
+ * paint it with.
  */
 export function stageShot(name, game) {
   if (name === 'campaign') {
     game.startRoute(1);
     game.showScreen('campaign');
-    return 'campaign';
+    return { screen: 'campaign', camera: 'chase' };
   }
   if (name === 'landing') {
     game.startRoute(4); // Night Runway
@@ -59,20 +60,29 @@ export function stageShot(name, game) {
       if (game.plane.crashed || game.plane.landed) break;
     }
     game.showScreen('playing');
-    return 'playing';
+    return { screen: 'playing', camera: 'chase' };
   }
   // cover + rings: Route 1 Ring Rally.
   game.startRoute(1);
   if (name === 'cover') {
-    // No hop: stage the spawn frame. Ring 1 sits at y=181, only ~290 m
-    // ahead of the spawn and ~120 m above it, while the chase camera looks
-    // slightly down — so the ring already fills the top of the frame at
-    // spawn (top edge ~27 px inside it), and every second flown toward it
-    // steepens its angle until it clips out the top (at 2.4 s the top edge
-    // was ~110 px past the frame). The spawn frame keeps the whole ring in
-    // view with margin, the plane large, and the runway ahead below it.
+    // COCKPIT view on final approach: the spawn is already on the runway
+    // centreline heading north, so fly straight toward the threshold for
+    // just ~1.5 s — the target stays ahead of the plane the whole time, so
+    // the autopilot keeps correcting any wind/turbulence drift back to the
+    // centreline instead of turning around after a passed target. The plane
+    // ends up ~340 m out at ~65 m, with the whole runway strip and PAPI
+    // ahead through the windscreen above the lit instrument panel.
+    // Flaps 1 for the landing configuration (both the control state the
+    // HUD reads and the plane's own flaps field).
+    const target = { x: 210, y: 70, z: 60 };
+    for (let i = 0; i < 1.5 / SAMPLE; i += 1) {
+      game.step(autopilotControls(game.plane, target, 60));
+      if (game.plane.crashed || game.plane.landed) break;
+    }
+    if (game.controls) game.controls.setFlaps(1);
+    game.plane.flaps = 1;
     game.showScreen('playing');
-    return 'playing';
+    return { screen: 'playing', camera: 'cockpit' };
   }
   const seconds = 55;
   for (let i = 0; i < seconds / SAMPLE; i += 1) {
@@ -94,5 +104,5 @@ export function stageShot(name, game) {
     if (game.plane.crashed || game.mission.complete) break;
   }
   game.showScreen('playing');
-  return 'playing';
+  return { screen: 'playing', camera: 'chase' };
 }

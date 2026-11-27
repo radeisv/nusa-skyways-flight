@@ -13,6 +13,11 @@ import { updateHud, setHudVisible } from './hud.js';
 import { createAudio } from './audio.js';
 import { stageShot } from './shots.js';
 import { groundHeight } from './terrain.js';
+import { createInstruments } from './instruments.js';
+import { glideSlopeDeviation, updateMinimap } from './navigation.js';
+import { createWeather } from './weather.js';
+import { createControls } from './controls.js';
+import { scoreTouchdown } from './landing.js';
 
 const MAX_FRAME = 0.25;
 const params = new URLSearchParams(window.location.search);
@@ -22,9 +27,14 @@ const canvas = document.getElementById('game');
 const status = document.getElementById('status');
 const overlay = document.getElementById('overlay');
 const menu = document.getElementById('menu');
+const minimapCanvas = document.getElementById('hud-minimap');
+const whiteout = document.getElementById('cloud-whiteout');
 const renderer = createRenderer(canvas);
 const audio = createAudio();
 const input = createInput(canvas);
+const instruments = createInstruments();
+const controls = createControls(canvas);
+let weather = null;
 
 let save = loadSave();
 let screen = 'title';
@@ -72,6 +82,7 @@ function showScreen(next) {
       <button class="btn secondary" data-action="hangar">HANGAR &amp; UPGRADES</button></div>
       <div class="keys"><b>W/S</b> throttle &nbsp; <b>←/→</b> bank &amp; turn &nbsp; <b>I/K</b> pitch &nbsp;
       <b>K</b> drop mail &nbsp; <b>C</b> camera &nbsp; <b>P</b> pause &nbsp; <b>R</b> restart &nbsp; <b>M</b> mute<br>
+      Mouse: hold &amp; drag to steer &nbsp;·&nbsp; <b>Q/E</b> rudder &nbsp;·&nbsp; <b>F</b> flaps (0/1/2)<br>
       Land gently on the runway or splash down on the floats. Watch fuel, stall and storms.</div>
       <p class="coins-line">🪙 ${save.coins} coins &nbsp;·&nbsp; Routes cleared: ${Object.keys(save.stamps).length}/6</p>`;
   } else if (next === 'campaign') {
@@ -117,6 +128,7 @@ function showScreen(next) {
       <p class="tag">${route.name} — ${route.sub}</p>
       <p>Score <b>${mission.score}</b> &nbsp;·&nbsp; Time ${fmtTime(timeSec)} &nbsp;·&nbsp;
       Coins earned <b>+${lastAward.coinsEarned}</b> ${lastAward.first ? '(first flight bonus!)' : ''}</p>
+      ${plane && plane.lastLanding ? `<p class="tag">${scoreTouchdown(plane.lastLanding)}</p>` : ''}
       <p class="coins-line">🪙 ${save.coins} coins &nbsp;·&nbsp; ${nextRoute ? `Next: Route ${nextRoute.id} ${nextRoute.name} is now open` : 'All routes complete — you are the sky!'}</p>
       <div><button class="btn" data-action="fly" data-route="${nextRoute ? nextRoute.id : route.id}">${nextRoute ? 'NEXT ROUTE →' : 'FLY AGAIN'}</button>
       <button class="btn secondary" data-action="campaign">ROUTES</button>
@@ -142,7 +154,9 @@ function startRoute(id) {
   route = routeById(id);
   plane = createPlaneState(route, save.upgrades);
   mission = createMission(route);
+  weather = createWeather(route.seed, route);
   stormCells = renderer.loadWorld(route.seed, route.night, !!route.storm);
+  renderer.setWeather(weather);
   renderer.buildMarkers(mission);
   renderer.snapCamera();
   timeSec = 0;
@@ -154,8 +168,13 @@ function startRoute(id) {
 function stepGame(ctl) {
   const events = { ring: false, drop: false, landed: false, dropKey: dropPressed };
   dropPressed = false;
+  // Live weather feeds the flight model: wind drift + turbulence.
+  const env = weather && plane ? {
+    wind: weather.windAt(timeSec),
+    turb: weather.turbulence(timeSec, plane),
+  } : null;
   const flightEvents = stepFlight(plane, ctl, STEP, route.seed,
-    route.storm ? stormCells : [], route.kind === 'water');
+    route.storm ? stormCells : [], route.kind === 'water', env);
   if (flightEvents & EVENT_CRASH) {
     audio.crash();
     showScreen('crash');
@@ -163,7 +182,20 @@ function stepGame(ctl) {
     return;
   }
   if (flightEvents & EVENT_LANDED) events.landed = true;
+  // Snapshot before updateMission: the water phase consumes events.landed
+  // (splashdown -> takeoff), and the debrief below still needs to know the
+  // plane just landed.
+  const landedNow = events.landed;
   const result = updateMission(mission, plane, events, STEP);
+  // Landing debrief: four graded parameters + bonus points, once per landing.
+  if (landedNow && plane.lastLanding && !plane.lastLanding.scored) {
+    plane.lastLanding.scored = true;
+    mission.score += plane.lastLanding.points;
+    if (result !== 'complete') {
+      mission.message = scoreTouchdown(plane.lastLanding);
+      mission.messageTimer = 5;
+    }
+  }
   if (events.ring) audio.ring();
   if (events.drop) audio.drop();
   if (events.landed && mission.kind !== 'water') audio.land();
@@ -181,6 +213,7 @@ const game = {
   get plane() { return plane; },
   get mission() { return mission; },
   get screen() { return screen; },
+  get controls() { return controls; },
   startRoute,
   showScreen,
   step(ctl) {
@@ -208,10 +241,30 @@ menu.addEventListener('click', (event) => {
 
 // ---------- main loop ----------
 function readControls() {
-  return {
+  // Mouse steering (virtual stick) yields to held keyboard keys.
+  const mouse = controls.mouseSteering();
+  const kbBank = input.bankLeft() || input.bankRight();
+  const kbPitch = input.pitchUp() || input.pitchDown();
+  const ctl = {
     throttleUp: input.throttleUp(), throttleDown: input.throttleDown(),
     pitchUp: input.pitchUp(), pitchDown: input.pitchDown(),
     bankLeft: input.bankLeft(), bankRight: input.bankRight(),
+    rudderAmount: controls.rudderInput(),
+    flaps: controls.flapsControl(),
+  };
+  if (mouse && !kbBank) ctl.bankAmount = mouse.bankAmount;
+  if (mouse && !kbPitch) ctl.pitchAmount = mouse.pitchAmount;
+  return ctl;
+}
+
+/** Weather + flaps readout for the HUD (wind, flaps, in-cloud whiteout). */
+function wxReadout() {
+  const w = weather ? weather.readout(timeSec) : null;
+  return {
+    windKt: w ? w.kt : null,
+    windDir: w ? w.dirDeg : null,
+    flaps: controls.flapsControl(),
+    inCloud: weather && plane ? weather.inCloud(plane) : 0,
   };
 }
 
@@ -257,8 +310,22 @@ function frame(now) {
     }
     if (plane.fuel < 25 && elapsed - lastWarnBeep > 2) { lastWarnBeep = elapsed; audio.warn(); }
     audio.update(plane.throttle, plane.speedKt);
-    updateHud(plane, mission, timeSec, mission.score, save.coins, cameraMode, route.name);
+    updateHud(plane, mission, timeSec, mission.score, save.coins, cameraMode, route.name, wxReadout());
     renderer.updateMarkers(mission);
+    // Cockpit panel (cockpit camera only) + GPS minimap + in-cloud whiteout.
+    const cockpit = cameraMode === 'cockpit';
+    instruments.setVisible(cockpit);
+    if (cockpit) {
+      const target = currentTarget(mission);
+      instruments.draw(plane, glideSlopeDeviation(plane), {
+        windKt: weather ? weather.readout(timeSec).kt : null,
+        windDir: weather ? weather.dirDeg : null,
+        flaps: controls.flapsControl(),
+        target, px: plane.x, pz: plane.z,
+      });
+    }
+    updateMinimap(minimapCanvas, plane, mission, elapsed);
+    if (whiteout && weather) whiteout.style.opacity = String(weather.whiteout(plane));
   }
   if (plane) renderer.draw(plane, cameraMode, dt, elapsed);
 }
@@ -272,16 +339,29 @@ if (shot) {
   // Stage the scene with the real rules, paint it, and signal the screenshot.
   startRoute(1);
   const shown = stageShot(shot, game);
-  if (shown === 'campaign') {
+  cameraMode = shown.camera || 'chase';
+  if (shown.screen === 'campaign') {
     renderer.draw(plane, 'chase', 0.016, 1);
   } else {
-    updateHud(plane, mission, timeSec, mission.score, save.coins, cameraMode, route.name);
+    updateHud(plane, mission, timeSec, mission.score, save.coins, cameraMode, route.name, wxReadout());
     renderer.updateMarkers(mission);
-    renderer.draw(plane, 'chase', 0.016, 1);
+    // Cockpit cover: light the panel + minimap before the screenshot.
+    if (cameraMode === 'cockpit') {
+      const target = currentTarget(mission);
+      instruments.setVisible(true);
+      instruments.draw(plane, glideSlopeDeviation(plane), {
+        windKt: weather ? weather.readout(timeSec).kt : null,
+        windDir: weather ? weather.dirDeg : null,
+        flaps: controls.flapsControl(),
+        target, px: plane.x, pz: plane.z,
+      });
+    }
+    updateMinimap(minimapCanvas, plane, mission, 1);
+    renderer.draw(plane, cameraMode, 0.016, 1);
   }
   // Two painted frames, then ready.
   requestAnimationFrame(() => {
-    if (plane) renderer.draw(plane, 'chase', 0.016, 1.5);
+    if (plane) renderer.draw(plane, cameraMode, 0.016, 1.5);
     requestAnimationFrame(() => { window.__shotReady = true; });
   });
 } else {
@@ -299,6 +379,11 @@ window.__nusa = {
   get route() { return route; },
   get save() { return save; },
   get timeSec() { return timeSec; },
+  get cameraMode() { return cameraMode; },
+  get weather() { return weather; },
+  get controls() { return controls; },
+  get instrumentsState() { return instruments.lastValues(); },
+  get lastLanding() { return plane ? plane.lastLanding : null; },
   startRoute, showScreen,
   step: (ctl) => stepGame(ctl),
   groundAt: (x, z) => groundHeight(x, z, route.seed),

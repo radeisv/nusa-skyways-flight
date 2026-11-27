@@ -292,9 +292,34 @@ export function createRenderer(canvas) {
   const plane = buildPlane(THREE);
   scene.add(plane);
 
+  // --- Cockpit furniture, attached to the camera so it rides along in
+  // cockpit view: a dark glareshield across the bottom of the frame and the
+  // white engine cowling peeking over it in the middle. The DOM instrument
+  // panel covers the bottom of the screen below this; the strip that peeks
+  // above it is what makes the windscreen read as a cockpit. ---
+  scene.add(camera);
+  const cockpitGroup = new THREE.Group();
+  const dashMat = new THREE.MeshStandardMaterial({ color: 0x1a2432, metalness: 0.2, roughness: 0.85 });
+  const glareshield = new THREE.Mesh(new THREE.BoxGeometry(4.6, 0.9, 0.35), dashMat);
+  glareshield.position.set(0, -1.15, -3.2);
+  cockpitGroup.add(glareshield);
+  const cowling = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.6, 1.5, 14),
+    new THREE.MeshStandardMaterial({ color: 0xf7f5ef, metalness: 0.3, roughness: 0.28 }));
+  cowling.rotation.x = Math.PI / 2;
+  cowling.position.set(0, -1.12, -3.6);
+  cockpitGroup.add(cowling);
+  const cowlingTop = new THREE.Mesh(new THREE.SphereGeometry(0.45, 14, 10),
+    new THREE.MeshStandardMaterial({ color: 0xf7f5ef, metalness: 0.3, roughness: 0.28 }));
+  cowlingTop.scale.set(1, 0.6, 1);
+  cowlingTop.position.set(0, -1.04, -4.3);
+  cockpitGroup.add(cowlingTop);
+  cockpitGroup.visible = false;
+  camera.add(cockpitGroup);
+
   let terrain = null;
   let markers = null;
   let night = false;
+  let weather = null; // live weather (rain field), set per route
   let snapNext = true; // first frame (or after a route start) snaps, never swoops from the origin
 
   // --- Cheap particle pool: wingtip contrails + water splash. ---
@@ -518,12 +543,20 @@ export function createRenderer(canvas) {
     }
     if (!planeState.landed) splashActive = false;
     updateParticles(dt);
+    // Live weather: rain streaks follow the camera when it rains.
+    if (weather) weather.updateRain(camera.position, timeSec);
+    // The cockpit furniture only shows in cockpit view.
+    cockpitGroup.visible = mode === 'cockpit';
     fwd.set(Math.sin(planeState.heading), 0, Math.cos(planeState.heading));
     if (mode === 'cockpit') {
       camPos.copy(planePos).addScaledVector(fwd, -1.5);
       camPos.y += 1.6;
       camLook.copy(planePos).addScaledVector(fwd, 60);
-      camLook.y += Math.sin(planeState.pitch) * 30;
+      // Aim a touch down (4 m at 60 m, ~4 degrees): on final approach the
+      // runway and PAPI must read through the windscreen, not hide behind
+      // the cowling — but not so far down that the sun clips out the top
+      // of the frame. The pitch term keeps the horizon honest in a climb.
+      camLook.y += Math.sin(planeState.pitch) * 30 - 4;
       camera.position.copy(camPos);
       camera.up.copy(up);
       camera.lookAt(camLook);
@@ -573,6 +606,15 @@ export function createRenderer(canvas) {
   return {
     loadWorld, buildMarkers, updateMarkers, draw, resize, setNight,
     snapCamera() { snapNext = true; },
+    /** Attach this route's weather (rain field) to the scene. */
+    setWeather(w) {
+      if (weather && weather.rainField) scene.remove(weather.rainField);
+      weather = w;
+      if (weather) {
+        const field = weather.attachRain(THREE);
+        if (field) scene.add(field);
+      }
+    },
     cameraPosition() { return { x: camera.position.x, y: camera.position.y, z: camera.position.z }; },
     debugScene() {
       const out = [];

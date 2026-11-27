@@ -46,7 +46,7 @@ function drawAttitude(canvas, pitch, bank) {
   ctx.beginPath(); ctx.arc(cx, cy, 3, 0, Math.PI * 2); ctx.fill();
 }
 
-export function updateHud(plane, mission, timeSec, score, coins, cameraMode, routeName) {
+export function updateHud(plane, mission, timeSec, score, coins, cameraMode, routeName, wx) {
   const hud = $('hud');
   if (!hud) return;
   // The bottom-left bars sit over bright terrain: give the whole block the
@@ -71,6 +71,16 @@ export function updateHud(plane, mission, timeSec, score, coins, cameraMode, rou
   $('hud-time').textContent = `${mins}:${String(secs).padStart(2, '0')}`;
   $('hud-route').textContent = routeName;
   $('hud-cam').textContent = cameraMode.toUpperCase();
+  // Weather + flaps readout: wind is shown when a route's weather is live.
+  if (wx) {
+    const windEl = $('hud-wind'), flapsEl = $('hud-flaps');
+    const windTxt = (wx.windKt != null && wx.windDir != null)
+      ? `WIND ${Math.round(wx.windKt)} kt ${Math.round(wx.windDir)}°` : '';
+    const cloudTxt = (wx.inCloud || 0) > 0.4 ? 'IN CLOUDS' : '';
+    const line = [windTxt, cloudTxt].filter(Boolean).join('  ·  ');
+    if (windEl) { windEl.textContent = line; windEl.style.display = line ? 'block' : 'none'; }
+    if (flapsEl) flapsEl.textContent = `FLAPS ${wx.flaps || 0}`;
+  }
   $('hud-objective-text').textContent = mission.objective;
   $('hud-objective-sub').textContent = mission.messageTimer > 0 ? mission.message : '';
   const att = $('hud-attitude');

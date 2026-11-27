@@ -136,6 +136,12 @@ export function updateMission(mission, plane, events, dt) {
         mission.message = `Mail delivered — +150 (${mission.done} total)`;
         mission.messageTimer = 2.5;
         events.drop = true;
+        // A pure mail route ends when the last bag is down (a drops route
+        // has no landing leg — its total is just the pads).
+        if (mission.kind === 'drops' && mission.done >= mission.total) {
+          mission.complete = true;
+          return 'complete';
+        }
       }
     }
   }

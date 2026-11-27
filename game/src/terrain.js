@@ -212,7 +212,7 @@ function buildFoam(THREE) {
 function buildPalms(THREE, seed) {
   const rand = createRandom(seed * 13 + 3);
   const spots = [];
-  for (let i = 0; i < 400 && spots.length < 130; i += 1) {
+  for (let i = 0; i < 500 && spots.length < 170; i += 1) {
     const isl = ISLANDS[Math.floor(rand() * ISLANDS.length)];
     const a = rand() * Math.PI * 2;
     const d = Math.sqrt(rand()) * isl.r * 0.88;
@@ -266,7 +266,7 @@ function buildPalms(THREE, seed) {
 function buildBushes(THREE, seed) {
   const rand = createRandom(seed * 17 + 9);
   const spots = [];
-  for (let i = 0; i < 500 && spots.length < 200; i += 1) {
+  for (let i = 0; i < 600 && spots.length < 260; i += 1) {
     const isl = ISLANDS[Math.floor(rand() * ISLANDS.length)];
     const a = rand() * Math.PI * 2;
     const d = Math.sqrt(rand()) * isl.r * 0.9;
@@ -299,6 +299,47 @@ function buildBushes(THREE, seed) {
   });
   bushes.instanceColor.needsUpdate = true;
   group.add(bushes);
+  return group;
+}
+
+// Boulders on the slopes and shorelines, one InstancedMesh, grey-brown.
+function buildRocks(THREE, seed) {
+  const rand = createRandom(seed * 23 + 11);
+  const spots = [];
+  for (let i = 0; i < 400 && spots.length < 160; i += 1) {
+    const isl = ISLANDS[Math.floor(rand() * ISLANDS.length)];
+    const a = rand() * Math.PI * 2;
+    const d = Math.sqrt(rand()) * isl.r * 0.92;
+    const x = isl.x + Math.cos(a) * d, z = isl.z + Math.sin(a) * d;
+    const h = groundHeight(x, z, seed);
+    if (h < 2 || h > 85) continue;
+    if (Math.abs(x - RUNWAY.x) < 70 && z > -160 && z < 260) continue;
+    if (Math.abs(x - RUNWAY.x) < 55 && Math.abs(z - RUNWAY.z) < RUNWAY.length / 2 + 40) continue;
+    spots.push({ x, z, h });
+  }
+  const group = new THREE.Group();
+  if (spots.length === 0) return group;
+  const geo = new THREE.DodecahedronGeometry(1.6, 0);
+  const mat = new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true });
+  const rocks = new THREE.InstancedMesh(geo, mat, spots.length);
+  rocks.castShadow = true;
+  const m = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  const e = new THREE.Euler();
+  const s = new THREE.Vector3();
+  const p = new THREE.Vector3();
+  spots.forEach((spot, i) => {
+    e.set(rand() * Math.PI, rand() * Math.PI, rand() * Math.PI);
+    q.setFromEuler(e);
+    const bs = 0.6 + rand() * 1.6;
+    s.set(bs, bs * 0.7, bs);
+    p.set(spot.x, spot.h + 0.4, spot.z);
+    m.compose(p, q, s);
+    rocks.setMatrixAt(i, m);
+    rocks.setColorAt(i, new THREE.Color(rand() < 0.5 ? 0x8a7f72 : 0x6e6258));
+  });
+  rocks.instanceColor.needsUpdate = true;
+  group.add(rocks);
   return group;
 }
 
@@ -544,6 +585,7 @@ export function buildTerrain(THREE, seed, night, storm) {
   for (const isl of ISLANDS) group.add(buildIsland(THREE, isl, seed));
   group.add(buildPalms(THREE, seed));
   group.add(buildBushes(THREE, seed));
+  group.add(buildRocks(THREE, seed));
   const settlement = buildSettlement(THREE, seed);
   group.add(settlement.group);
   // Volcano crater glow: molten disc + warm point light, gently pulsing.

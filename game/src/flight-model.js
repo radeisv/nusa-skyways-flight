@@ -3,6 +3,7 @@
 // Stall, fuel burn, damage and landing/crash detection all live here.
 import { PLANE, WORLD } from './config.js';
 import { groundHeight, RUNWAY, WATER_ZONE } from './terrain.js';
+import { gradeLanding } from './landing.js';
 
 export const EVENT_NONE = 0;
 export const EVENT_CRASH = 1;
@@ -17,6 +18,7 @@ export function createPlaneState(route, upgrades) {
     speedKt: 90, throttle: 65, fuel: fuelMax, fuelMax,
     damage: 0, airborne: true, landed: false, crashed: false,
     crashReason: '', verticalSpeed: 0, groundSpeed: 90,
+    flaps: 0, lastLanding: null,
     upgrades: { tank: upgrades.tank || 0, armor: upgrades.armor || 0, engine: upgrades.engine || 0 },
   };
 }
@@ -32,11 +34,16 @@ function engineFactor(state) {
 
 /**
  * Advance the plane one fixed step. `ctl` is { throttleUp, throttleDown,
- * pitchUp, pitchDown, bankLeft, bankRight }. Returns an event bitmask.
+ * pitchUp, pitchDown, bankLeft, bankRight, bankAmount, pitchAmount,
+ * rudderAmount, flaps }. `env` is optional { wind: {x, z} m/s,
+ * turb: {pitch, bank} rad/s } from the live weather. Returns an event bitmask.
  */
-export function stepFlight(state, ctl, dt, seed, stormCells, isWaterRoute) {
+export function stepFlight(state, ctl, dt, seed, stormCells, isWaterRoute, env) {
   let events = EVENT_NONE;
   if (state.crashed) return events;
+  if (ctl.flaps != null) state.flaps = clamp(ctl.flaps | 0, 0, 2);
+  const wind = (env && env.wind) || { x: 0, z: 0 };
+  const turb = (env && env.turb) || { pitch: 0, bank: 0 };
   if (state.landed) {
     // Ground / water roll: throttle builds speed, pitch up past 80 kt lifts off.
     if (ctl.throttleUp) state.throttle = clamp(state.throttle + 55 * dt, 0, 100);
@@ -44,8 +51,8 @@ export function stepFlight(state, ctl, dt, seed, stormCells, isWaterRoute) {
     const target = (state.throttle / 100) * PLANE.maxKt * engineFactor(state);
     state.speedKt += clamp(target - state.speedKt, -PLANE.dragPerSec * dt, PLANE.accelPerSec * dt);
     const speedMs = state.speedKt * 0.514444;
-    state.x += Math.sin(state.heading) * speedMs * dt;
-    state.z += Math.cos(state.heading) * speedMs * dt;
+    state.x += Math.sin(state.heading) * speedMs * dt + wind.x * dt * 0.2;
+    state.z += Math.cos(state.heading) * speedMs * dt + wind.z * dt * 0.2;
     state.fuel = Math.max(0, state.fuel - PLANE.fuelBurn * (state.throttle / 100) * dt);
     if (state.speedKt > 80 && ctl.pitchUp) {
       state.landed = false; state.airborne = true; state.y += 3; state.pitch = 0.3;
@@ -57,8 +64,10 @@ export function stepFlight(state, ctl, dt, seed, stormCells, isWaterRoute) {
   if (ctl.throttleDown) state.throttle = clamp(state.throttle - 55 * dt, 0, 100);
 
   const eng = engineFactor(state);
-  const targetSpeed = (state.throttle / 100) * PLANE.maxKt * eng;
-  const rate = state.speedKt < targetSpeed ? PLANE.accelPerSec : PLANE.dragPerSec;
+  const flap = state.flaps || 0;
+  // Flaps: more lift and drag, lower stall speed — land slower and shorter.
+  const targetSpeed = (state.throttle / 100) * PLANE.maxKt * eng * (1 - 0.06 * flap);
+  const rate = state.speedKt < targetSpeed ? PLANE.accelPerSec : PLANE.dragPerSec * (1 + 0.25 * flap);
   state.speedKt += clamp(targetSpeed - state.speedKt, -rate * dt, rate * dt);
   if (state.speedKt < 0) state.speedKt = 0;
 
@@ -68,27 +77,30 @@ export function stepFlight(state, ctl, dt, seed, stormCells, isWaterRoute) {
   const pitchInput = ctl.pitchAmount != null
     ? ctl.pitchAmount
     : (ctl.pitchUp ? 1 : 0) - (ctl.pitchDown ? 1 : 0);
-  const pitchTarget = pitchInput * 0.42;
+  const pitchTarget = pitchInput * 0.42 + turb.pitch;
   state.pitch += clamp(pitchTarget - state.pitch, -PLANE.pitchRate * dt, PLANE.pitchRate * dt);
   // Bank: arrows roll the plane; heading follows the bank.
   const bankInput = ctl.bankAmount != null
     ? ctl.bankAmount
     : (ctl.bankRight ? 1 : 0) - (ctl.bankLeft ? 1 : 0);
-  const bankTarget = bankInput * 0.85;
+  const bankTarget = bankInput * 0.85 + turb.bank;
   state.bank += clamp(bankTarget - state.bank, -PLANE.bankRate * dt, PLANE.bankRate * dt);
   state.heading -= state.bank * PLANE.turnRate * dt * (0.4 + state.speedKt / 160);
+  // Rudder (Q/E): direct yaw, no bank needed — coordinate the turn by hand.
+  const rudder = ctl.rudderAmount || 0;
+  state.heading -= rudder * 0.35 * dt * (0.5 + state.speedKt / 160);
 
-  const stalled = state.speedKt < PLANE.stallKt && state.y > 8;
+  const stalled = state.speedKt < (PLANE.stallKt - 4 * flap) && state.y > 8;
   if (stalled) events |= EVENT_STALL;
 
   // Vertical speed: pitch lift minus sink; stall drops the nose.
   // (Lift uses metres per second, not knots — the two differ by ~2x.)
   const speedMs = state.speedKt * 0.514444;
-  const lift = Math.sin(state.pitch) * speedMs * 0.62 * eng;
-  const sink = stalled ? -PLANE.sinkRate * 2.4 : -PLANE.sinkRate * (1 - state.throttle / 140);
+  const lift = Math.sin(state.pitch) * speedMs * 0.62 * eng * (1 + 0.12 * flap);
+  const sink = stalled ? -PLANE.sinkRate * 2.4 : -PLANE.sinkRate * (1 - state.throttle / 140) * (1 - 0.08 * flap);
   state.verticalSpeed = lift + sink;
-  state.x += Math.sin(state.heading) * speedMs * Math.cos(state.pitch) * dt;
-  state.z += Math.cos(state.heading) * speedMs * Math.cos(state.pitch) * dt;
+  state.x += Math.sin(state.heading) * speedMs * Math.cos(state.pitch) * dt + wind.x * dt;
+  state.z += Math.cos(state.heading) * speedMs * Math.cos(state.pitch) * dt + wind.z * dt;
   state.y += state.verticalSpeed * dt;
   // Soft world edge: steer back in.
   const edge = WORLD.size / 2 - 60;
@@ -124,8 +136,10 @@ export function stepFlight(state, ctl, dt, seed, stormCells, isWaterRoute) {
 
   if (state.y <= Math.max(ground, 0) + 1.0) {
     if (nearRunway) {
-      const hard = Math.abs(state.verticalSpeed) > 7 || state.speedKt > 150;
-      if (hard) {
+      // Four-parameter landing grading: speed, sink, roll and pitch.
+      const grading = gradeLanding(state, 'runway');
+      state.lastLanding = grading;
+      if (!grading.ok) {
         state.damage += PLANE.damageHardLanding * damageFactor(state);
         if (state.damage >= 100) {
           state.crashed = true; state.crashReason = 'Hard landing tore the airframe apart.';
@@ -138,12 +152,14 @@ export function stepFlight(state, ctl, dt, seed, stormCells, isWaterRoute) {
       return EVENT_LANDED;
     }
     if (overWater && inWaterZone) {
-      if (Math.abs(state.verticalSpeed) < 12 && state.speedKt < 140) {
-        state.y = 1.2; state.landed = true; state.airborne = false;
-        return EVENT_LANDED;
+      const grading = gradeLanding(state, 'water');
+      state.lastLanding = grading;
+      if (!grading.ok) {
+        state.crashed = true; state.crashReason = 'Slammed into the water too hard.';
+        return EVENT_CRASH;
       }
-      state.crashed = true; state.crashReason = 'Slammed into the water too hard.';
-      return EVENT_CRASH;
+      state.y = 1.2; state.landed = true; state.airborne = false;
+      return EVENT_LANDED;
     }
     if (overWater) {
       state.crashed = true; state.crashReason = 'Ditched in the sea.';
