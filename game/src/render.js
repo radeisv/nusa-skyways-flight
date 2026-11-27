@@ -155,7 +155,7 @@ export function buildPlane(THREE) {
   spinnerTip.position.z = -7.5;
   add(spinnerTip);
   const blurDisc = new THREE.Mesh(new THREE.CircleGeometry(2.9, 28),
-    new THREE.MeshBasicMaterial({ map: makeDiscTexture(THREE), transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false }));
+    new THREE.MeshBasicMaterial({ map: makeDiscTexture(THREE), transparent: true, opacity: 0.65, side: THREE.DoubleSide, depthWrite: false }));
   blurDisc.position.z = -6.82;
   add(blurDisc);
   // Landing gear: struts + wheels (kept, tucked for the amphibian).
@@ -554,8 +554,7 @@ export function createRenderer(canvas) {
       camLook.copy(planePos).addScaledVector(fwd, 60);
       // Aim a touch down (4 m at 60 m, ~4 degrees): on final approach the
       // runway and PAPI must read through the windscreen, not hide behind
-      // the cowling — but not so far down that the sun clips out the top
-      // of the frame. The pitch term keeps the horizon honest in a climb.
+      // the cowling. The pitch term keeps the horizon honest in a climb.
       camLook.y += Math.sin(planeState.pitch) * 30 - 4;
       camera.position.copy(camPos);
       camera.up.copy(up);
@@ -568,6 +567,19 @@ export function createRenderer(canvas) {
       camPos.y += 1.2;
       camera.position.copy(camPos);
       camera.lookAt(planePos.x + fwd.x * 40, planePos.y, planePos.z + fwd.z * 40);
+      plane.visible = true;
+    } else if (mode === 'hero') {
+      // Cinematic close chase, for cover staging only (never in the live
+      // camera cycle): 17 m behind instead of 26, so the modern amphibian
+      // fills the frame — wingspan roughly half the frame width — while
+      // the world ahead stays in view. Snaps, never lerps: a staged shot
+      // is one frozen frame.
+      const right = new THREE.Vector3(Math.cos(planeState.heading), 0, -Math.sin(planeState.heading));
+      camera.position.copy(planePos).addScaledVector(fwd, -21).addScaledVector(right, 9);
+      camera.position.y += 5.5;
+      camLook.copy(planePos).addScaledVector(fwd, 30);
+      camLook.y += 1;
+      camera.lookAt(camLook);
       plane.visible = true;
     } else {
       // Chase: behind, above and a little to the side, easing toward the

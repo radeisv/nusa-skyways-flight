@@ -62,28 +62,36 @@ export function stageShot(name, game) {
     game.showScreen('playing');
     return { screen: 'playing', camera: 'chase' };
   }
-  // cover + rings: Route 1 Ring Rally.
+  // cover: Route 1 Ring Rally.
   game.startRoute(1);
   if (name === 'cover') {
-    // COCKPIT view on final approach: the spawn is already on the runway
-    // centreline heading north, so fly straight toward the threshold for
-    // just ~1.5 s — the target stays ahead of the plane the whole time, so
-    // the autopilot keeps correcting any wind/turbulence drift back to the
-    // centreline instead of turning around after a passed target. The plane
-    // ends up ~340 m out at ~65 m, with the whole runway strip and PAPI
-    // ahead through the windscreen above the lit instrument panel.
-    // Flaps 1 for the landing configuration (both the control state the
-    // HUD reads and the plane's own flaps field).
-    const target = { x: 210, y: 70, z: 60 };
-    for (let i = 0; i < 1.5 / SAMPLE; i += 1) {
-      game.step(autopilotControls(game.plane, target, 60));
-      if (game.plane.crashed || game.plane.landed) break;
-    }
-    if (game.controls) game.controls.setFlaps(1);
-    game.plane.flaps = 1;
+    // COVER — LOW SUNSET PASS (winner of the 2026-11-27 cover comparison,
+    // picked over the fixed cockpit and the dramatic rings shot: the plane
+    // is large and readable, the runway strip fills the frame ahead with
+    // PAPI + edge lights + tower, no element is clipped, and the golden
+    // hour light reads. The modern amphibian low over the runway
+    // centreline, 12 m up (6 m above the strip), 110 m from the
+    // threshold, slight bank for dynamism, 130 kt. Shot with the close
+    // hero camera (21 m behind, 7 m to the side). Deterministic: the
+    // plane is placed, not flown, so the same seed always gives the
+    // same frame. Ring 2 sits in the distance beyond the strip.
+    const p = game.plane;
+    p.x = 210; p.y = 12; p.z = 300; p.heading = Math.PI; p.pitch = 0;
+    p.bank = 0.12; p.speedKt = 130; p.throttle = 70; p.verticalSpeed = 0;
     game.showScreen('playing');
-    return { screen: 'playing', camera: 'cockpit' };
+    return { screen: 'playing', camera: 'hero' };
   }
+  // Rings fly-out: fly the real rules toward the rings until 3 are done,
+  // then settle so the plane is lined up on the next ring with the
+  // following rings in frame.
+  flyRings(game);
+  game.showScreen('playing');
+  return { screen: 'playing', camera: 'chase' };
+}
+
+/** Fly Route 1's rings with the real rules + autopilot until 3 are done,
+ * then settle 6 s onto the next ring. */
+function flyRings(game) {
   const seconds = 55;
   for (let i = 0; i < seconds / SAMPLE; i += 1) {
     const target = currentTarget(game.mission);
@@ -103,6 +111,4 @@ export function stageShot(name, game) {
     game.step(autopilotControls(game.plane, target, 74));
     if (game.plane.crashed || game.mission.complete) break;
   }
-  game.showScreen('playing');
-  return { screen: 'playing', camera: 'chase' };
 }
