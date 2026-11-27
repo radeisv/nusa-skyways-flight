@@ -82,6 +82,24 @@
   .keys { font-size: 14px; color: #cfe4ff; line-height: 1.9; background: rgba(0,0,0,0.35);
     border-radius: 10px; padding: 10px 16px; display: inline-block; text-align: left; }
   .keys b { color: #ffd23d; }
+  /* ---------- Cockpit panel + GPS minimap + in-cloud whiteout ---------- */
+  #cockpit-panel { position: fixed; left: 0; right: 0; bottom: 0; height: 170px; z-index: 4;
+    pointer-events: none; display: none; }
+  #cockpit-panel canvas { width: 100%; height: 100%; display: block; }
+  #hud-minimap { position: absolute; left: 12px; top: 118px; width: 180px; height: 180px;
+    border-radius: 10px; border: 1px solid rgba(255,255,255,0.3); box-shadow: 0 8px 24px rgba(0,0,0,0.35); }
+  #hud-wind, #hud-flaps { font-size: 14px; font-weight: 800; color: #bfe3ff; letter-spacing: 0.5px; }
+  /* In cockpit view the bottom bars/help rise above the instrument panel. */
+  #hud.cockpit #hud-bars { bottom: 182px; }
+  #hud.cockpit #hud-help { bottom: 182px; }
+  #cloud-whiteout { position: fixed; inset: 0; background: #ffffff; opacity: 0;
+    pointer-events: none; z-index: 8; transition: opacity 0.25s; }
+  #mouse-stick { position: fixed; left: 50%; top: 50%; width: 80px; height: 80px;
+    margin: -40px 0 0 -40px; border: 2px solid rgba(255,255,255,0.55); border-radius: 50%;
+    background: rgba(9, 22, 44, 0.25); pointer-events: none; z-index: 6; display: none; }
+  #mouse-stick-dot { position: absolute; left: 50%; top: 50%; width: 22px; height: 22px;
+    margin: -11px 0 0 -11px; border-radius: 50%; background: #ffd23d;
+    box-shadow: 0 0 10px rgba(255,210,61,0.8); }
 </style>
 </head>
 <body>
@@ -101,15 +119,22 @@
     <div class="row">TIME <b id="hud-time">0:00</b></div>
     <div class="row">COINS <b id="hud-coins">0</b></div>
     <div class="row"><span id="hud-route">Coral Lagoon</span> · <span id="hud-cam">CHASE</span></div>
+    <div class="row" id="hud-wind"></div>
+    <div class="row" id="hud-flaps"></div>
   </div>
+  <canvas id="hud-minimap" width="180" height="180" aria-label="GPS map"></canvas>
   <div id="hud-warn"></div>
   <div id="hud-bars">
     <div class="bar-row"><span class="blbl">THROTTLE</span><div class="bar"><div class="bar-fill thr" id="hud-thr"></div></div><span class="bar-num" id="hud-thr-num">0%</span></div>
     <div class="bar-row"><span class="blbl">FUEL</span><div class="bar"><div class="bar-fill fuel" id="hud-fuel"></div></div></div>
     <div class="bar-row"><span class="blbl">DAMAGE</span><div class="bar"><div class="bar-fill dmg" id="hud-dmg"></div></div></div>
   </div>
-  <div id="hud-help">W/S throttle · ←/→ bank · I/K pitch · C camera · P pause · R restart · M mute</div>
+  <div id="hud-help">W/S throttle · ←/→ bank · I/K pitch · drag mouse to steer · C camera · P pause · R restart · M mute</div>
 </div>
+
+<div id="cockpit-panel"><canvas id="panel-canvas" width="1280" height="200"></canvas></div>
+<div id="cloud-whiteout"></div>
+<div id="mouse-stick"><div id="mouse-stick-dot"></div></div>
 
 <div id="overlay"><div class="menu" id="menu"></div></div>
 
